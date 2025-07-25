@@ -1,0 +1,13 @@
+drainage_status,units
+direct_co2,t CO2-C ha-1 y-1
+direct_co2_1,t CO2-C ha-1 y-1
+direct_co2_2,t CO2-C ha-1 y-1
+co2_from_doc,t CO2-C ha-1 y-1
+co2_from_poc,t CO2-C ha-1 y-1
+direct_ch4,kg CH4 ha-1 y-1
+ch4_from_ditches,kg CH4 ha-1 y-1
+direct_n2o,kg N2O-N ha-1 y-1
+total_(±_se),t CO2e ha-1 yr-1
+total_break1,t CO2e ha-1 yr-1
+total_break2,t CO2e ha-1 yr-1
+total_up_down,t CO2e ha-1 yr-1
