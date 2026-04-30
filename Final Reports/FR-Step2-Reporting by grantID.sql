@@ -2,8 +2,8 @@
 --- THE GGHG TABLE WAS CREATED WITH STEPS A TO H
 
 
-DROP TABLE IF EXISTS pa_ghg_reporting.first_ghg_report_2025_with_unespecied;
-CREATE TABLE pa_ghg_reporting.first_ghg_report_2025_with_unespecied AS
+DROP TABLE IF EXISTS pa_ghg_reporting.first_ghg_report_2026_with_unespecied;
+CREATE TABLE pa_ghg_reporting.first_ghg_report_2026_with_unespecied AS
 SELECT 
     *,
     
@@ -163,7 +163,7 @@ SELECT
         ELSE 0
     END AS "Unspecified assigned to Actively Eroding"
 
-FROM pa_ghg_reporting.ghg_report_2025_20251212; ------ REPLACE THE NEW TABLE HERE!!!!
+FROM pa_ghg_reporting.ghg_report_2026_20260430; ------ REPLACE THE NEW TABLE HERE!!!!
 -- =====================================================================
 
 
@@ -172,7 +172,7 @@ DECLARE
     ts TEXT := to_char(NOW(), 'YYYYMMDD_HH24MISS');
 
     second_tbl TEXT := format('second_rewetted_summary_table_%s', ts);
-    third_tbl  TEXT := format('third_ghg_report_2025_summary_%s', ts);
+    third_tbl  TEXT := format('third_ghg_report_2026_summary_%s', ts);
     ef_tbl     TEXT := format('emission_factors_final_calcs_%s', ts);
 BEGIN
 
@@ -269,12 +269,13 @@ BEGIN
                 COALESCE("Peat extraction - Domestic or unknown - Domestic Extraction", 0)
             ) AS "Project Area"
 
-        FROM pa_ghg_reporting.first_ghg_report_2025_with_unespecied
+        FROM pa_ghg_reporting.first_ghg_report_2026_with_unespecied
         GROUP BY "grant_id"
         ORDER BY "grant_id";
     $sql$, second_tbl, second_tbl);
 
     -- Convenience view pointing to the latest grant-level m² summary
+	DROP VIEW IF EXISTS pa_ghg_reporting.second_rewetted_summary_table_latest;
     EXECUTE format($v$
         CREATE OR REPLACE VIEW pa_ghg_reporting.second_rewetted_summary_table_latest AS
         SELECT * FROM pa_ghg_reporting.%I;
@@ -305,7 +306,7 @@ BEGIN
 
     -- Convenience view pointing to the latest grant-level ha summary
     EXECUTE format($v$
-        CREATE OR REPLACE VIEW pa_ghg_reporting.third_ghg_report_2025_summary_latest AS
+        CREATE OR REPLACE VIEW pa_ghg_reporting.third_ghg_report_2026_summary_latest AS
         SELECT * FROM pa_ghg_reporting.%I;
     $v$, third_tbl);
 

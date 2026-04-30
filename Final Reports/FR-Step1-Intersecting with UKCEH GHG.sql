@@ -157,7 +157,7 @@ END $$;
 
 -- =========================================================
 -- BLOCK B — Dissolve by Financial Year End + resolve overlaps
--- Output of this block: temp.ghg_report_2025_work  (NOT final)
+-- Output of this block: temp.ghg_report_2026_work  (NOT final)
 -- Intermediate tables (temp schema) will be dropped later.
 -- =========================================================
 
@@ -326,9 +326,9 @@ FROM (
 GROUP BY financial_year_end, geom;
 
 -- B6) Combine: overlap=1 resolved (round2) + overlap=0 untouched
-DROP TABLE IF EXISTS temp.ghg_report_2025_work;
+DROP TABLE IF EXISTS temp.ghg_report_2026_work;
 
-CREATE TABLE temp.ghg_report_2025_work AS
+CREATE TABLE temp.ghg_report_2026_work AS
 SELECT grant_id, geom FROM temp.ghg_report_resolve_overlap_round2
 UNION
 SELECT grant_id, geom FROM temp.ghg_report_temp_poly_by_year
@@ -336,13 +336,13 @@ WHERE overlap = 0;
 
 DO $$
 BEGIN
-  RAISE NOTICE 'BLOCK B completed: Output ready in temp.ghg_report_2025_work.';
+  RAISE NOTICE 'BLOCK B completed: Output ready in temp.ghg_report_2026_work.';
 END $$;
 
 
 -- =========================================================
 -- BLOCK C — Baseline clip+dissolve + transpose rows->columns
--- Output of this block: temp.ghg_report_2025_draft  (NOT final)
+-- Output of this block: temp.ghg_report_2026_draft  (NOT final)
 -- =========================================================
 
 DO $$
@@ -374,15 +374,15 @@ FROM (
     round(st_area(poly.geom)::numeric, 2) AS project_area,
     poly.geom AS geom2
   FROM external_data.ghg_20240131 AS ghg,
-       temp.ghg_report_2025_work AS poly
+       temp.ghg_report_2026_work AS poly
   WHERE st_intersects(ghg.geom, poly.geom)  -- clipping query
 ) AS foo
 GROUP BY grant_id, lc_level2, lc_level3, condition, project_area, geom2;
 
 -- C2) TRANSPOSE rows to columns (wide format)
-DROP TABLE IF EXISTS temp.ghg_report_2025_draft;
+DROP TABLE IF EXISTS temp.ghg_report_2026_draft;
 
-CREATE TABLE temp.ghg_report_2025_draft AS
+CREATE TABLE temp.ghg_report_2026_draft AS
 WITH conditions AS (
   SELECT
     row_number() OVER () AS id,
@@ -459,13 +459,13 @@ GROUP BY grant_id, project_area, geom
 ORDER BY grant_id;
 
 -- C3) Bring missing geometries from temp.ghg_report_temp_poly (same idea as your script)
-CREATE INDEX IF NOT EXISTS idx_ghg_report_2025_draft_geom
-  ON temp.ghg_report_2025_draft USING gist (geom);
+CREATE INDEX IF NOT EXISTS idx_ghg_report_2026_draft_geom
+  ON temp.ghg_report_2026_draft USING gist (geom);
 
 CREATE INDEX IF NOT EXISTS idx_ghg_report_temp_poly_geom
   ON temp.ghg_report_temp_poly USING gist (geom);
 
-INSERT INTO temp.ghg_report_2025_draft (grant_id, project_area, geom)
+INSERT INTO temp.ghg_report_2026_draft (grant_id, project_area, geom)
 SELECT
   a.grant_id,
   round(st_area(a.geom)::numeric, 2) AS project_area,
@@ -473,18 +473,18 @@ SELECT
 FROM temp.ghg_report_temp_poly a
 WHERE NOT EXISTS (
   SELECT 1
-  FROM temp.ghg_report_2025_draft b
+  FROM temp.ghg_report_2026_draft b
   WHERE NOT ST_Disjoint(a.geom, b.geom)
 );
 
 DO $$
 BEGIN
-  RAISE NOTICE 'BLOCK C completed: Output ready in temp.ghg_report_2025_draft.';
+  RAISE NOTICE 'BLOCK C completed: Output ready in temp.ghg_report_2026_draft.';
 END $$;
 -- =========================================================
 -- BLOCK D — Add attributes (project name, current use, condition, techniques, FY end, centroid, forestry, difference, version)
--- Input : temp.ghg_report_2025_draft
--- Output: temp.ghg_report_2025_enriched   (NOT final)
+-- Input : temp.ghg_report_2026_draft
+-- Output: temp.ghg_report_2026_enriched   (NOT final)
 -- =========================================================
 
 DO $$
@@ -493,12 +493,12 @@ BEGIN
 END $$;
 
 -- D0) Create a working copy (so we keep the draft intact if needed)
-DROP TABLE IF EXISTS temp.ghg_report_2025_enriched;
-CREATE TABLE temp.ghg_report_2025_enriched AS
-SELECT * FROM temp.ghg_report_2025_draft;
+DROP TABLE IF EXISTS temp.ghg_report_2026_enriched;
+CREATE TABLE temp.ghg_report_2026_enriched AS
+SELECT * FROM temp.ghg_report_2026_draft;
 
 -- D1) Add columns (same as original intent)
-ALTER TABLE temp.ghg_report_2025_enriched
+ALTER TABLE temp.ghg_report_2026_enriched
   ADD COLUMN IF NOT EXISTS difference decimal,
   ADD COLUMN IF NOT EXISTS project_name varchar,
   ADD COLUMN IF NOT EXISTS pa_current_use varchar,
@@ -510,14 +510,14 @@ ALTER TABLE temp.ghg_report_2025_enriched
   ADD COLUMN IF NOT EXISTS version date;
 
 -- D2) Insert centroid (unique id proxy)
-UPDATE temp.ghg_report_2025_enriched
+UPDATE temp.ghg_report_2026_enriched
 SET centroid = get_grid_ref_from_geom(ST_PointOnSurface(geom));
 
 -- D3) Project name(s) from pa_metadata.grant_reference (unnest -> join -> nest back)
 WITH
 grant_id_unnest AS (
   SELECT centroid, unnest(string_to_array(grant_id, ',')) AS grant_id
-  FROM temp.ghg_report_2025_enriched
+  FROM temp.ghg_report_2026_enriched
 ),
 join_use_grant_id AS (
   SELECT centroid, a.grant_id, b.project_name
@@ -533,13 +533,13 @@ grant_id_nest AS (
   GROUP BY centroid
   ORDER BY centroid
 )
-UPDATE temp.ghg_report_2025_enriched a
+UPDATE temp.ghg_report_2026_enriched a
 SET project_name = (
   SELECT "project_name(s)" FROM grant_id_nest b WHERE a.centroid = b.centroid
 );
 
 -- Fallback when grant_ids has more than one site (same as original)
-UPDATE temp.ghg_report_2025_enriched a
+UPDATE temp.ghg_report_2026_enriched a
 SET project_name = (
   SELECT project_name
   FROM pa_metadata.grant_reference b
@@ -561,7 +561,7 @@ WITH current_use_all AS (
 ),
 grant_id_unnest AS (
   SELECT centroid, unnest(string_to_array(grant_id, ',')) AS grant_id
-  FROM temp.ghg_report_2025_enriched
+  FROM temp.ghg_report_2026_enriched
 ),
 join_use_grant_id AS (
   SELECT centroid, a.grant_id, b.current_use
@@ -577,31 +577,31 @@ grant_id_nest AS (
   GROUP BY centroid
   ORDER BY centroid
 )
-UPDATE temp.ghg_report_2025_enriched a
+UPDATE temp.ghg_report_2026_enriched a
 SET pa_current_use = (
   SELECT current_use FROM grant_id_nest b WHERE a.centroid = b.centroid
 );
 
 -- Clean or update old categories (same statements, just pointing to temp)
-UPDATE temp.ghg_report_2025_enriched SET pa_current_use = 'Forestry'
+UPDATE temp.ghg_report_2026_enriched SET pa_current_use = 'Forestry'
 WHERE pa_current_use = '5,4';
 
-UPDATE temp.ghg_report_2025_enriched SET pa_current_use = replace(pa_current_use,'5,4','Forestry')
+UPDATE temp.ghg_report_2026_enriched SET pa_current_use = replace(pa_current_use,'5,4','Forestry')
 WHERE pa_current_use LIKE '%5,4%';
 
-UPDATE temp.ghg_report_2025_enriched SET pa_current_use = replace(pa_current_use,'1,3,4','')
+UPDATE temp.ghg_report_2026_enriched SET pa_current_use = replace(pa_current_use,'1,3,4','')
 WHERE pa_current_use LIKE '%1,3,4%';
 
-UPDATE temp.ghg_report_2025_enriched SET pa_current_use = replace(pa_current_use,'3,4,1','')
+UPDATE temp.ghg_report_2026_enriched SET pa_current_use = replace(pa_current_use,'3,4,1','')
 WHERE pa_current_use LIKE '%3,4,1%';
 
-UPDATE temp.ghg_report_2025_enriched SET pa_current_use = replace(pa_current_use,'1,4','')
+UPDATE temp.ghg_report_2026_enriched SET pa_current_use = replace(pa_current_use,'1,4','')
 WHERE pa_current_use LIKE '%1,4%';
 
-UPDATE temp.ghg_report_2025_enriched SET pa_current_use = replace(pa_current_use,'1,','')
+UPDATE temp.ghg_report_2026_enriched SET pa_current_use = replace(pa_current_use,'1,','')
 WHERE pa_current_use LIKE '%1,%';
 
-UPDATE temp.ghg_report_2025_enriched SET pa_current_use = replace(pa_current_use,'4','Deer Management')
+UPDATE temp.ghg_report_2026_enriched SET pa_current_use = replace(pa_current_use,'4','Deer Management')
 WHERE pa_current_use = '4';
 
 -- D5) Conditions from final report + site_summary_2021 (same as original)
@@ -618,7 +618,7 @@ WITH conditions_all AS (
 ),
 grant_id_unnest AS (
   SELECT centroid, unnest(string_to_array(grant_id, ',')) AS grant_id
-  FROM temp.ghg_report_2025_enriched
+  FROM temp.ghg_report_2026_enriched
 ),
 join_condition_grant_id AS (
   SELECT centroid, a.grant_id, b.peatland_condition
@@ -634,7 +634,7 @@ grant_id_nest AS (
   GROUP BY centroid
   ORDER BY centroid
 )
-UPDATE temp.ghg_report_2025_enriched a
+UPDATE temp.ghg_report_2026_enriched a
 SET pa_condition_category = (
   SELECT peatland_condition FROM grant_id_nest b WHERE a.centroid = b.centroid
 );
@@ -697,7 +697,7 @@ WITH techniques_all AS (
 ),
 grant_id_unnest AS (
   SELECT centroid, unnest(string_to_array(grant_id, ',')) AS grant_id
-  FROM temp.ghg_report_2025_enriched
+  FROM temp.ghg_report_2026_enriched
 ),
 join_techniques_grant_id AS (
   SELECT centroid, a.grant_id, b.techniques
@@ -713,7 +713,7 @@ grant_id_nest AS (
   GROUP BY centroid
   ORDER BY centroid
 )
-UPDATE temp.ghg_report_2025_enriched a
+UPDATE temp.ghg_report_2026_enriched a
 SET techniques = (
   SELECT techniques FROM grant_id_nest b WHERE a.centroid = b.centroid
 );
@@ -721,7 +721,7 @@ SET techniques = (
 -- D7) Financial year end (min/max per centroid, set to max/to_year)
 WITH grant_id_unnest AS (
   SELECT centroid, unnest(string_to_array(grant_id, ',')) AS grant_id
-  FROM temp.ghg_report_2025_enriched
+  FROM temp.ghg_report_2026_enriched
 ),
 grant_id_fy AS (
   SELECT centroid, a.grant_id, b.financial_year_end
@@ -739,31 +739,31 @@ grant_id_fy_array AS (
   GROUP BY centroid
   ORDER BY centroid
 )
-UPDATE temp.ghg_report_2025_enriched a
+UPDATE temp.ghg_report_2026_enriched a
 SET financial_year_end = (SELECT to_year FROM grant_id_fy_array b WHERE a.centroid = b.centroid);
 
 -- D8) Forestry flag + guess missing conditions (same rules)
-UPDATE temp.ghg_report_2025_enriched
+UPDATE temp.ghg_report_2026_enriched
 SET forestry = TRUE
 WHERE pa_condition_category ILIKE '%forest%'
    OR pa_current_use ILIKE '%forest%'
    OR techniques SIMILAR TO '%(forest|stump|tree|smooth|mulching|regen|furrow|felling|scrub)%';
 
-UPDATE temp.ghg_report_2025_enriched
+UPDATE temp.ghg_report_2026_enriched
 SET pa_condition_category = 'Forested previously forested'
 WHERE pa_condition_category IS NULL
   AND forestry = 'yes';
 
-UPDATE temp.ghg_report_2025_enriched
+UPDATE temp.ghg_report_2026_enriched
 SET pa_condition_category = 'Drained'
 WHERE techniques = 'dams, ditch blocking';
 
-UPDATE temp.ghg_report_2025_enriched
+UPDATE temp.ghg_report_2026_enriched
 SET pa_condition_category = 'Not provided'
 WHERE pa_condition_category = 'Yes' OR pa_condition_category = 'Y';
 
 -- D9) Difference (baseline coverage area sum - project_area)
-UPDATE temp.ghg_report_2025_enriched
+UPDATE temp.ghg_report_2026_enriched
 SET difference = round((
   COALESCE("Broadleaved - Broadleaved - Forest",0)
 + COALESCE("Conifer - Conifer - Forest",0)
@@ -787,12 +787,12 @@ SET difference = round((
 )::numeric, 2);
 
 -- D10) Version as current date
-UPDATE temp.ghg_report_2025_enriched
+UPDATE temp.ghg_report_2026_enriched
 SET version = CURRENT_DATE;
 
 DO $$
 BEGIN
-  RAISE NOTICE 'BLOCK D completed: Output ready in temp.ghg_report_2025_enriched.';
+  RAISE NOTICE 'BLOCK D completed: Output ready in temp.ghg_report_2026_enriched.';
 END $$;
 
 -- =========================================================
@@ -800,20 +800,20 @@ END $$;
 --           + cleaning + dedup + peat depth stats + warnings + grants
 --           + drop ALL intermediate temp tables
 --
--- Input : temp.ghg_report_2025_enriched   (from Block D)
--- Output: pa_ghg_reporting.ghg_report_2025_YYYYMMDD   (FINAL)
+-- Input : temp.ghg_report_2026_enriched   (from Block D)
+-- Output: pa_ghg_reporting.ghg_report_2026_YYYYMMDD   (FINAL)
 -- =========================================================
 
 DO $$
 DECLARE
   v_suffix text := to_char(CURRENT_DATE, 'YYYYMMDD');
-  v_final  text := format('pa_ghg_reporting.ghg_report_2025_%s', to_char(CURRENT_DATE, 'YYYYMMDD'));
+  v_final  text := format('pa_ghg_reporting.ghg_report_2026_%s', to_char(CURRENT_DATE, 'YYYYMMDD'));
 BEGIN
   RAISE NOTICE 'BLOCK E started: Create FINAL table % and run cleaning/enrichment steps.', v_final;
 
   -- E1) Create FINAL table (copy of enriched)
   EXECUTE format('DROP TABLE IF EXISTS %s', v_final);
-  EXECUTE format('CREATE TABLE %s AS SELECT * FROM temp.ghg_report_2025_enriched', v_final);
+  EXECUTE format('CREATE TABLE %s AS SELECT * FROM temp.ghg_report_2026_enriched', v_final);
 
   -- E2) Ensure version is current date (same as your script)
   EXECUTE format('UPDATE %s SET version = CURRENT_DATE', v_final);
@@ -835,12 +835,12 @@ BEGIN
 
   -- Replace FINAL with deduped version
   EXECUTE format('DROP TABLE IF EXISTS %s', v_final);
-  EXECUTE format('ALTER TABLE temp.ghg_report_no_dups RENAME TO %I', format('ghg_report_2025_%s', v_suffix));
+  EXECUTE format('ALTER TABLE temp.ghg_report_no_dups RENAME TO %I', format('ghg_report_2026_%s', v_suffix));
   -- (Now the renamed table lives in schema temp by default; move it to pa_ghg_reporting)
-  EXECUTE format('ALTER TABLE temp.%I SET SCHEMA pa_ghg_reporting', format('ghg_report_2025_%s', v_suffix));
+  EXECUTE format('ALTER TABLE temp.%I SET SCHEMA pa_ghg_reporting', format('ghg_report_2026_%s', v_suffix));
 
   -- Refresh v_final to point to the recreated final table
-  v_final := format('pa_ghg_reporting.ghg_report_2025_%s', v_suffix);
+  v_final := format('pa_ghg_reporting.ghg_report_2026_%s', v_suffix);
 
   -- E5) ADDING peat depth stats (same logic as your script)
   DROP TABLE IF EXISTS temp.pdsconditions_deleteme;
@@ -966,10 +966,10 @@ BEGIN
   DROP TABLE IF EXISTS temp.ghg_report_temp_poly_by_year;
   DROP TABLE IF EXISTS temp.ghg_report_resolve_overlap;
   DROP TABLE IF EXISTS temp.ghg_report_resolve_overlap_round2;
-  DROP TABLE IF EXISTS temp.ghg_report_2025_work;
+  DROP TABLE IF EXISTS temp.ghg_report_2026_work;
   DROP TABLE IF EXISTS temp.ghg_20240131_clip_dissolve;
-  DROP TABLE IF EXISTS temp.ghg_report_2025_draft;
-  DROP TABLE IF EXISTS temp.ghg_report_2025_enriched;
+  DROP TABLE IF EXISTS temp.ghg_report_2026_draft;
+  DROP TABLE IF EXISTS temp.ghg_report_2026_enriched;
   DROP TABLE IF EXISTS temp.pdsconditions_deleteme;
   DROP TABLE IF EXISTS temp.ghg_report_draft2;
 
@@ -978,14 +978,14 @@ END $$;
 
 -- =========================================================
 -- BLOCK F — Change tracking vs previous snapshot + QC
--- FINAL table: pa_ghg_reporting.ghg_report_2025_YYYYMMDD
--- Previous : pa_ghg_reporting.ghg_report_20240904
+-- FINAL table: pa_ghg_reporting.ghg_report_2026_YYYYMMDD
+-- Previous : pa_ghg_reporting.ghg_report_2025  ---- NEEDS UPDATE TO PREVIOUS DATASET!!!!
 -- =========================================================
 
 DO $$
 DECLARE
   v_final text := format(
-    'pa_ghg_reporting.ghg_report_2025_%s',
+    'pa_ghg_reporting.ghg_report_2026_%s',
     to_char(CURRENT_DATE, 'YYYYMMDD')
   );
   v_ha numeric;
@@ -1012,7 +1012,7 @@ BEGIN
     'UPDATE %s SET new_site = FALSE
      WHERE grant_id IN (
        SELECT grant_id
-       FROM pa_ghg_reporting.ghg_report_20240904
+       FROM pa_ghg_reporting.ghg_report_2025
      )',
     v_final
   );
@@ -1021,7 +1021,7 @@ BEGIN
     'UPDATE %s SET new_site = TRUE
      WHERE grant_id NOT IN (
        SELECT grant_id
-       FROM pa_ghg_reporting.ghg_report_20240904
+       FROM pa_ghg_reporting.ghg_report_2025
      )',
     v_final
   );
@@ -1039,7 +1039,7 @@ BEGIN
      WHERE new_site = FALSE
        AND centroid NOT IN (
          SELECT centroid
-         FROM pa_ghg_reporting.ghg_report_20240904
+         FROM pa_ghg_reporting.ghg_report_2025
        )',
     v_final
   );
@@ -1076,4 +1076,4 @@ BEGIN
   RAISE NOTICE 'BLOCK F completed successfully on %', v_final;
 END $$;
 
-SELECT round(sum(project_area)/10000::numeric,2) FROM pa_ghg_reporting.ghg_report_2025;
+--SELECT round(sum(project_area)/10000::numeric,2) FROM pa_ghg_reporting.ghg_report_2026;
