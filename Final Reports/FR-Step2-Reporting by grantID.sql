@@ -348,9 +348,16 @@ BEGIN
             JOIN pa_ghg_reporting.emissions_factors_mapping_table m
               ON u.category = m.category
             JOIN pa_ghg_reporting.emission_factors_table pre_factors
-              ON m.emission_factor_pre = pre_factors.peat_condition
+              ON lower(btrim(pre_factors.peat_condition)) = lower(btrim(m.emission_factor_pre))
             JOIN pa_ghg_reporting.emission_factors_table post_factors
-              ON m.emission_factor_post = post_factors.peat_condition
+              ON lower(btrim(post_factors.peat_condition)) = lower(btrim(
+                   CASE
+                     WHEN m.category = 'Drained Modified Bog (ha)'
+                      AND m.emission_factor_post = 'Rewetted Modified Bog'
+                     THEN 'Rewetted Modified (Semi-natural) Bog'
+                     ELSE m.emission_factor_post
+                   END
+                 ))
         )
         SELECT
             "grant_id",
