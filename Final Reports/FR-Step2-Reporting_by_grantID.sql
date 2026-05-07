@@ -2,8 +2,8 @@
 --- THE GGHG TABLE WAS CREATED WITH STEPS A TO H
 
 
-DROP TABLE IF EXISTS pa_ghg_reporting.first_ghg_report_2025_with_unespecied;
-CREATE TABLE pa_ghg_reporting.first_ghg_report_2025_with_unespecied AS
+DROP TABLE IF EXISTS pa_ghg_reporting.first_ghg_report_2026_with_unespecied;
+CREATE TABLE pa_ghg_reporting.first_ghg_report_2026_with_unespecied AS
 SELECT 
     *,
     
@@ -163,7 +163,7 @@ SELECT
         ELSE 0
     END AS "Unspecified assigned to Actively Eroding"
 
-FROM pa_ghg_reporting.ghg_report_2025_20251212; ------ REPLACE THE NEW TABLE HERE!!!!
+FROM pa_ghg_reporting.ghg_report_2026_20260430; ------ REPLACE THE NEW TABLE HERE!!!!
 -- =====================================================================
 
 
@@ -172,7 +172,7 @@ DECLARE
     ts TEXT := to_char(NOW(), 'YYYYMMDD_HH24MISS');
 
     second_tbl TEXT := format('second_rewetted_summary_table_%s', ts);
-    third_tbl  TEXT := format('third_ghg_report_2025_summary_%s', ts);
+    third_tbl  TEXT := format('third_ghg_report_2026_summary_%s', ts);
     ef_tbl     TEXT := format('emission_factors_final_calcs_%s', ts);
 BEGIN
 
@@ -269,12 +269,13 @@ BEGIN
                 COALESCE("Peat extraction - Domestic or unknown - Domestic Extraction", 0)
             ) AS "Project Area"
 
-        FROM pa_ghg_reporting.first_ghg_report_2025_with_unespecied
+        FROM pa_ghg_reporting.first_ghg_report_2026_with_unespecied
         GROUP BY "grant_id"
         ORDER BY "grant_id";
     $sql$, second_tbl, second_tbl);
 
     -- Convenience view pointing to the latest grant-level m² summary
+	DROP VIEW IF EXISTS pa_ghg_reporting.second_rewetted_summary_table_latest;
     EXECUTE format($v$
         CREATE OR REPLACE VIEW pa_ghg_reporting.second_rewetted_summary_table_latest AS
         SELECT * FROM pa_ghg_reporting.%I;
@@ -305,7 +306,7 @@ BEGIN
 
     -- Convenience view pointing to the latest grant-level ha summary
     EXECUTE format($v$
-        CREATE OR REPLACE VIEW pa_ghg_reporting.third_ghg_report_2025_summary_latest AS
+        CREATE OR REPLACE VIEW pa_ghg_reporting.third_ghg_report_2026_summary_latest AS
         SELECT * FROM pa_ghg_reporting.%I;
     $v$, third_tbl);
 
@@ -347,9 +348,16 @@ BEGIN
             JOIN pa_ghg_reporting.emissions_factors_mapping_table m
               ON u.category = m.category
             JOIN pa_ghg_reporting.emission_factors_table pre_factors
-              ON m.emission_factor_pre = pre_factors.peat_condition
+              ON lower(btrim(pre_factors.peat_condition)) = lower(btrim(m.emission_factor_pre))
             JOIN pa_ghg_reporting.emission_factors_table post_factors
-              ON m.emission_factor_post = post_factors.peat_condition
+              ON lower(btrim(post_factors.peat_condition)) = lower(btrim(
+                   CASE
+                     WHEN m.category = 'Drained Modified Bog (ha)'
+                      AND m.emission_factor_post = 'Rewetted Modified Bog'
+                     THEN 'Rewetted Modified (Semi-natural) Bog'
+                     ELSE m.emission_factor_post
+                   END
+                 ))
         )
         SELECT
             "grant_id",
@@ -366,10 +374,66 @@ BEGIN
         ORDER BY "grant_id", emission_factor_pre;
     $sql$, ef_tbl, ef_tbl, third_tbl);
 
-    -- Convenience view pointing to the latest emission factor calcs
+    -- Convenience view pointing to the latest emission factor calcs.
+    -- Adds delivery_partner, max financial_year_end, and forestry using exact comma-separated grant_id tokens.
+    -- Matching priority: use the first grant_id in a.grant_id that has a match;
+    -- if it has no match, try the second, then the third, etc.
     EXECUTE format($v$
         CREATE OR REPLACE VIEW pa_ghg_reporting.emission_factors_final_calcs_latest AS
-        SELECT * FROM pa_ghg_reporting.%I;
+        WITH
+        b_split AS (
+            SELECT
+                btrim(x.grant_id_part) AS grant_id_part,
+                max(b.delivery_partner) AS delivery_partner,
+                max(b.financial_year_end) AS financial_year_end
+            FROM pa_reporting.reported_ha b
+            CROSS JOIN LATERAL regexp_split_to_table(b.grant_id::text, '\s*,\s*') AS x(grant_id_part)
+            WHERE btrim(x.grant_id_part) <> ''
+            GROUP BY btrim(x.grant_id_part)
+        ),
+        c_split AS (
+            SELECT
+                btrim(x.grant_id_part) AS grant_id_part,
+                bool_or(c.forestry) AS forestry
+            FROM pa_ghg_reporting.ghg_report_2026_20260506 c
+            CROSS JOIN LATERAL regexp_split_to_table(c.grant_id::text, '\s*,\s*') AS x(grant_id_part)
+            WHERE btrim(x.grant_id_part) <> ''
+            GROUP BY btrim(x.grant_id_part)
+        )
+        SELECT
+            a.grant_id,
+            a.emission_factor_pre,
+            a.emission_factor_post,
+            a.pre_emissions_break1,
+            a.pre_emissions_break2,
+            a.post_emissions_break1,
+            a.post_emissions_break2,
+            a.diff_break1,
+            a.diff_break2,
+            b.delivery_partner,
+            c.forestry,
+            b.financial_year_end
+        FROM pa_ghg_reporting.%I a
+        LEFT JOIN LATERAL (
+            SELECT
+                bs.delivery_partner,
+                bs.financial_year_end
+            FROM regexp_split_to_table(a.grant_id::text, '\s*,\s*') WITH ORDINALITY AS ag(grant_id_part, grant_order)
+            JOIN b_split bs
+              ON btrim(ag.grant_id_part) = bs.grant_id_part
+            WHERE btrim(ag.grant_id_part) <> ''
+            ORDER BY ag.grant_order
+            LIMIT 1
+        ) b ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT cs.forestry
+            FROM regexp_split_to_table(a.grant_id::text, '\s*,\s*') WITH ORDINALITY AS ag(grant_id_part, grant_order)
+            JOIN c_split cs
+              ON btrim(ag.grant_id_part) = cs.grant_id_part
+            WHERE btrim(ag.grant_id_part) <> ''
+            ORDER BY ag.grant_order
+            LIMIT 1
+        ) c ON TRUE;
     $v$, ef_tbl);
 
 END$$;
