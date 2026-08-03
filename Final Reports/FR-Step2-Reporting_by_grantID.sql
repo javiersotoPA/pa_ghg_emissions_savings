@@ -163,7 +163,7 @@ SELECT
         ELSE 0
     END AS "Unspecified assigned to Actively Eroding"
 
-FROM pa_ghg_reporting.ghg_report_2026_20260430; ------ REPLACE THE NEW TABLE HERE!!!!
+FROM pa_ghg_reporting.ghg_report_2026_X; ------ REPLACE THE NEW TABLE HERE!!!!
 -- =====================================================================
 
 
@@ -395,7 +395,7 @@ BEGIN
             SELECT
                 btrim(x.grant_id_part) AS grant_id_part,
                 bool_or(c.forestry) AS forestry
-            FROM pa_ghg_reporting.ghg_report_2026_20260506 c
+            FROM pa_ghg_reporting.ghg_report_2026_X c  ------ REPLACE THE NEW TABLE HERE!!!!
             CROSS JOIN LATERAL regexp_split_to_table(c.grant_id::text, '\s*,\s*') AS x(grant_id_part)
             WHERE btrim(x.grant_id_part) <> ''
             GROUP BY btrim(x.grant_id_part)
